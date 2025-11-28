@@ -45,7 +45,7 @@ def test(headless: bool = False):
     # Load simulation environment and policy (action = policy(obs_hist))
     env, policy = load_env(run_path = None,
                            weights_path = None,
-                           sim_device = 'cuda:3', 
+                           sim_device = 'cuda:0', 
                         #    sim_device = 'cpu', 
                            num_envs = NUM_ENVS, 
                            headless = headless)

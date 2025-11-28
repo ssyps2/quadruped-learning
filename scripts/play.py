@@ -68,7 +68,7 @@ def play(headless: bool = False):
     # Load simulation environment and policy (action = policy(obs_hist))
     env, policy = load_env(run_path = RUN_PATH,
                            weights_path = WEIGHTS_PATH,
-                           sim_device = 'cuda:2', 
+                           sim_device = 'cuda:0', 
                            num_envs = NUM_ENVS, 
                            headless = headless)
     

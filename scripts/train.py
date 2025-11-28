@@ -31,12 +31,12 @@ def configure_env():
     Cfg.commands.control_ee_ori = False 
     Cfg.commands.control_ee_ori_only_yaw = False
     
-    # Cfg.env.num_envs = 30
-    # Cfg.sim.physx.max_gpu_contact_pairs = 2 ** 25
+    Cfg.env.num_envs = 30
+    Cfg.sim.physx.max_gpu_contact_pairs = 2 ** 25
 
-    # RunnerArgs.resume = False
-    # RunnerArgs.resume_path = "improbableai/b1-z1-IK/gtkntvpq"
-    # RunnerArgs.resume_checkpoint = 'tmp/legged_data/ac_weights_5600.pt' 
+    # RunnerArgs.resume = True
+    # RunnerArgs.resume_path = "pengyuan-georgia-institute-of-technology/b1-loco-z1-manip/xqpeh9a7"
+    # RunnerArgs.resume_checkpoint = 'tmp/legged_data/ac_weights_latest.pt' 
 
     Cfg.robot.name = "b1_plus_z1"
 
@@ -633,7 +633,7 @@ def train_b1_z1_IK(headless=True, **deps):
     )
 
     runner = Runner(env, device=sim_device)
-    runner.learn(num_learning_iterations=100000, init_at_random_ep_len=True, eval_freq=100)
+    runner.learn(num_learning_iterations=10000, init_at_random_ep_len=True, eval_freq=100)
 
 
 if __name__ == '__main__':

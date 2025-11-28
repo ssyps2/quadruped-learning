@@ -49,7 +49,7 @@ class RunnerArgs(PrefixProto, cli=False):
     max_iterations = 1500  # number of policy updates
 
     # logging
-    save_interval = 400  # check for potential saves every this many iterations
+    save_interval = 100  # check for potential saves every this many iterations
     save_video_interval = 100
     log_freq = 10
 
@@ -235,6 +235,7 @@ class Runner:
             # logger.job_running()
             wandb.log({"timesteps": self.tot_timesteps, "iterations": it}, step=it)
 
+            print(f"Iteration {it} took {stop - start:.3f}s")
             if it % RunnerArgs.save_interval == 0:
                     print(f"Saving model at iteration {it}")
                 # with logger.Sync():

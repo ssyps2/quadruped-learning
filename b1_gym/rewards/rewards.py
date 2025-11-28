@@ -1,3 +1,5 @@
+import torch
+
 class Rewards:
     def __init__(self, env):
         self.env = env
