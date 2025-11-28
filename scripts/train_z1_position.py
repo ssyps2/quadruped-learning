@@ -11,95 +11,237 @@ from b1_gym_learn.ppo_cse.actor_critic import AC_Args
 from b1_gym_learn.ppo_cse.ppo import PPO_Args
 from b1_gym_learn.ppo_cse import RunnerArgs
 
+
 class RunCfg(PrefixProto, cli=False):
     experiment_group = "z1_position_control"
-    experiment_job_type = "default"
+    experiment_job_type = "release"
+
 
 def configure_env():
     from b1_gym.envs.base.legged_robot_config import Cfg
     config_z1(Cfg)
 
-    # Z1-specific overrides and best practices
-    Cfg.env.num_envs = 30
-    Cfg.env.num_scalar_observations = 42
-    Cfg.env.num_observations = 42
+    # Z1 has no leg DOFs, so avoid leg gains errors
+    Cfg.commands.p_gains_legs = []
+    Cfg.commands.d_gains_legs = []
+
+    # Z1-specific environment settings
+    Cfg.env.num_envs = 16  # Reduced for GPU memory
+    Cfg.env.num_actions = 7  # 6 arm joints + 1 gripper
+    # Observation size: OrientationSensor(3) + JointPositionSensor(7) + JointVelocitySensor(7) + ActionSensor(7) + ClockSensor(4) = 28
+    Cfg.env.num_scalar_observations = 28
+    Cfg.env.num_observations = 28
     Cfg.env.episode_length_s = 20
-    Cfg.sim.physx.max_gpu_contact_pairs = 2 ** 25
+    Cfg.sim.physx.max_gpu_contact_pairs = 2 ** 21  # Reduced for memory
     Cfg.robot.name = "z1"
 
-    # Sensors (adjust as needed for z1)
+    # Commands configuration for Z1 (simplified - no locomotion commands)
+    Cfg.commands.num_commands = 3  # EE target position (x, y, z) or (radius, pitch, yaw)
+    Cfg.commands.resampling_time = 10.0
+    Cfg.commands.command_curriculum = False
+    Cfg.commands.distributional_commands = False
+    Cfg.commands.control_only_z1 = False  # We're training pure Z1, not B1+Z1
+    
+    # EE spherical command ranges (relative to arm base)
+    Cfg.commands.ee_sphe_radius = [0.3, 0.7]
+    Cfg.commands.ee_sphe_pitch = [-np.pi/3, np.pi/3]
+    Cfg.commands.ee_sphe_yaw = [-np.pi/2, np.pi/2]
+    Cfg.commands.limit_ee_sphe_radius = [0.3, 0.7]
+    Cfg.commands.limit_ee_sphe_pitch = [-np.pi/3, np.pi/3]
+    Cfg.commands.limit_ee_sphe_yaw = [-np.pi/2, np.pi/2]
+
+    # Sensors for Z1 arm
     Cfg.sensors.sensor_names = [
-      "OrientationSensor",
-      "RCSensor",
-      "JointPositionSensor",
-      "JointVelocitySensor",
-      "ActionSensor",
-      "ClockSensor",
+        "OrientationSensor",    # size 3: projected gravity
+        "JointPositionSensor",  # size 7: arm joint positions
+        "JointVelocitySensor",  # size 7: arm joint velocities
+        "ActionSensor",         # size 7: current actions
+        "ClockSensor",          # size 4: phase clock
     ]
     Cfg.sensors.sensor_args = {
-      "OrientationSensor": {},
-      "RCSensor": {},
-      "JointPositionSensor": {},
-      "JointVelocitySensor": {},
-      "ActionSensor": {},
-      "ClockSensor": {},
+        "OrientationSensor": {},
+        "JointPositionSensor": {},
+        "JointVelocitySensor": {},
+        "ActionSensor": {},
+        "ClockSensor": {},
     }
+    
+    # Privileged observations for adaptation
+    Cfg.sensors.privileged_sensor_names = [
+        "JointDynamicsSensor",       # size 3: motor dynamics
+        "EeGripperPositionSensor",   # size 3: EE position
+    ]
+    Cfg.sensors.privileged_sensor_args = {
+        "JointDynamicsSensor": {},
+        "EeGripperPositionSensor": {},
+    }
+    Cfg.env.num_privileged_obs = 6
+    
+    # Adaptation module settings
+    AC_Args.adaptation_labels = ["dynamics_loss", "gripper_pos_loss"]
+    AC_Args.adaptation_dims = [3, 3]
+    AC_Args.adaptation_weights = [1, 10]
+    AC_Args.init_noise_std = 1.0
 
-    # Privileged observations (if any)
-    Cfg.sensors.privileged_sensor_names = []
-    Cfg.sensors.privileged_sensor_args = {}
-    Cfg.env.num_privileged_obs = 0
+    Cfg.env.num_observation_history = 10
+    Cfg.env.history_frame_skip = 1
 
-    # Reward container
+    # Reward container for Z1
     Cfg.rewards.reward_container_name = "Z1ArmBaseFrameRewards"
+    
+    # Reward settings
+    Cfg.rewards.only_positive_rewards = True
+    Cfg.rewards.only_positive_rewards_ji22_style = False
+    Cfg.rewards.total_rew_scale = 0.2
+    Cfg.rewards.soft_dof_pos_limit = 0.9
+    Cfg.rewards.soft_torque_limit_arm = 1.0
+    Cfg.rewards.base_height_target = 0.70
+    
+    # Termination conditions
+    Cfg.rewards.use_terminal_body_height = False
+    Cfg.rewards.use_terminal_roll_pitch = False
+    Cfg.rewards.use_terminal_foot_height = False
+    Cfg.rewards.use_terminal_torque_arm_limits = False
 
-    # Domain randomization (adjust as needed)
-    Cfg.domain_rand.rand_interval_s = 6
-    Cfg.domain_rand.randomize_base_mass = True
-    Cfg.domain_rand.added_mass_range = [-1, 3]
-    Cfg.domain_rand.push_robots = False
-    Cfg.domain_rand.max_push_vel_xy = 0.5
-    Cfg.domain_rand.randomize_friction = True
-    Cfg.domain_rand.friction_range = [0.05, 4.5]
-    Cfg.domain_rand.randomize_restitution = True
-    Cfg.domain_rand.restitution_range = [0.0, 1.0]
-    Cfg.domain_rand.restitution = 0.5
-    Cfg.domain_rand.randomize_com_displacement = True
-    Cfg.domain_rand.com_displacement_range = [-0.1, 0.1]
-    Cfg.domain_rand.randomize_motor_strength = True
-    Cfg.domain_rand.motor_strength_range = [0.9, 1.1]
-    Cfg.domain_rand.randomize_Kp_factor = False
-    Cfg.domain_rand.Kp_factor_range = [0.8, 1.3]
-    Cfg.domain_rand.randomize_Kd_factor = False
-    Cfg.domain_rand.Kd_factor_range = [0.5, 1.5]
-
-    # Rewards (adjust as needed)
+    ######################
+    ######## ARM #########
+    ######################
+    # Position tracking rewards
     Cfg.reward_scales.manip_pos_tracking = 3.0
     Cfg.reward_scales.manip_ori_tracking = 2.5
+    
+    # Torque and dynamics penalties
     Cfg.reward_scales.torque_limits_arm = -0.005
+    Cfg.reward_scales.torques = -1e-5
     Cfg.reward_scales.dof_vel_arm = -0.003
     Cfg.reward_scales.dof_acc_arm = -3e-8
+    
+    # Action smoothness penalties
     Cfg.reward_scales.action_rate_arm = 0.0
     Cfg.reward_scales.action_smoothness_1_arm = -0.01
     Cfg.reward_scales.action_smoothness_2_arm = -0.01
+    
+    # Joint limit penalties
     Cfg.reward_scales.dof_pos_limits_arm = -10.0
-    Cfg.rewards.only_positive_rewards = True
-    Cfg.rewards.total_rew_scale = 0.2
+    Cfg.reward_scales.dof_pos = -0.5
+    
+    # Survival reward
+    Cfg.reward_scales.survival = 2.0
+    
+    # Collision penalty
+    Cfg.reward_scales.collision = -5.0
+    
+    # EE motion penalties
+    Cfg.reward_scales.ee_velocity = 0.0
+    Cfg.reward_scales.ee_acceleration = 0.0
+    
+    # Regularization rewards
+    Cfg.reward_scales.joint_regularization = 0.0
+    Cfg.reward_scales.manipulability = 0.0
+    
+    # Orientation/base rewards (minimal for arm)
+    Cfg.reward_scales.orientation = 0.0
+    Cfg.reward_scales.base_height = 0.0
+    Cfg.reward_scales.termination = 0.0
+    
+    # Disable leg-specific rewards that don't exist in Z1ArmBaseFrameRewards
+    Cfg.reward_scales.tracking_lin_vel = 0.0
+    Cfg.reward_scales.tracking_ang_vel = 0.0
+    Cfg.reward_scales.lin_vel_z = 0.0
+    Cfg.reward_scales.ang_vel_xy = 0.0
+    Cfg.reward_scales.dof_acc_leg = 0.0
+    Cfg.reward_scales.feet_air_time = 0.0
+    Cfg.reward_scales.action_rate_leg = 0.0
+    Cfg.reward_scales.action_rate = 0.0
+    Cfg.reward_scales.dof_pos_limits = 0.0  # Use dof_pos_limits_arm instead
 
-    # PD gains (example, adjust as needed)
+    # Domain randomization
+    Cfg.domain_rand.rand_interval_s = 4
+    Cfg.domain_rand.lag_timesteps = 6
+    Cfg.domain_rand.randomize_lag_timesteps = True
+    Cfg.domain_rand.randomize_rigids_after_start = False
+    Cfg.domain_rand.randomize_friction = True
+    Cfg.domain_rand.friction_range = [0.6, 5.0]
+    Cfg.domain_rand.randomize_restitution = False
+    Cfg.domain_rand.restitution_range = [0.0, 0.4]
+    Cfg.domain_rand.randomize_base_mass = True
+    Cfg.domain_rand.added_mass_range = [-0.5, 1.0]
+    Cfg.domain_rand.randomize_gravity = False
+    Cfg.domain_rand.gravity_range = [-0.01, 0.01]
+    Cfg.domain_rand.randomize_com_displacement = True
+    Cfg.domain_rand.com_displacement_range = [-0.05, 0.05]
+    Cfg.domain_rand.randomize_ground_friction = False
+    Cfg.domain_rand.ground_friction_range = [0.0, 0.01]
+    Cfg.domain_rand.randomize_motor_strength = True
+    Cfg.domain_rand.motor_strength_range = [0.9, 1.1]
+    Cfg.domain_rand.randomize_motor_offset = False
+    Cfg.domain_rand.motor_offset_range = [-0.02, 0.02]
+    Cfg.domain_rand.push_robots = False
+    Cfg.domain_rand.randomize_Kp_factor = False
+    Cfg.domain_rand.randomize_Kd_factor = False
+    Cfg.domain_rand.randomize_tile_roughness = False
+    Cfg.domain_rand.tile_roughness_range = [0.0, 0.1]
+
+    # Arm PD gains (Unitree Z1 style)
+    default_p_gains = [20.0, 30.0, 30.0, 20.0, 15.0, 10.0, 20.0]
+    default_d_gains = [2000.0] * 7
+
+    unitree_p_gains = [kp * 25.6 for kp in default_p_gains]
+    unitree_d_gains = [kd * 0.0128 for kd in default_d_gains]
+
+    unitree_p_gains_div6 = [kp / 6 for kp in unitree_p_gains]
+    unitree_d_gains_div6 = [kd / 6 for kd in unitree_d_gains]
+    unitree_p_gains_div6[5] = unitree_p_gains_div6[5] * 6 / 4
+    unitree_d_gains_div6[5] = unitree_d_gains_div6[5] * 6 / 4
+
+    # Position control gains
     Cfg.commands.p_gains_arm = [64., 128., 64., 64., 64., 64., 64.]
     Cfg.commands.d_gains_arm = [1.5, 3.0, 1.5, 1.5, 1.5, 1.5, 1.5]
+    
+    # Control settings
     Cfg.control.decimation = 4
+    Cfg.control.control_type = 'P'
+    Cfg.control.action_scale = 0.25
+    Cfg.control.arm_scale_reduction = 2.0
+    
+    # Normalization
+    Cfg.normalization.clip_actions = 10.0
 
-    # Terrain
+    # Terrain settings (simple flat terrain for arm training)
     Cfg.terrain.mesh_type = 'trimesh'
     Cfg.terrain.terrain_noise_magnitude = 0.0
     Cfg.terrain.teleport_robots = True
     Cfg.terrain.border_size = 50
+    Cfg.terrain.num_cols = 10
+    Cfg.terrain.num_rows = 10
+    Cfg.terrain.terrain_width = 5.0
+    Cfg.terrain.terrain_length = 5.0
+    Cfg.terrain.x_init_range = 0.5
+    Cfg.terrain.y_init_range = 0.5
     Cfg.terrain.terrain_proportions = [0, 0, 0, 0, 0, 0, 0, 0, 1.0]
     Cfg.terrain.curriculum = False
+    Cfg.terrain.center_robots = True
+    Cfg.terrain.center_span = 4
 
-    # Viewer
+    # Asset settings
+    Cfg.asset.fix_base_link = True  # Z1 arm is typically fixed-base
+    Cfg.asset.penalize_contacts_on = ["link02", "link03", "link06"]
+    Cfg.asset.terminate_after_contacts_on = []
+    Cfg.asset.self_collisions = 0  # enable self-collision
+
+    # Initial state
+    Cfg.init_state.pos = [0.0, 0.0, 0.70]
+    Cfg.init_state.default_joint_angles = {
+        'joint1': 0.0,
+        'joint2': 1.5,
+        'joint3': -1.5,
+        'joint4': -0.54,
+        'joint5': 0.0,
+        'joint6': 0.0,
+        'jointGripper': 0.0,
+    }
+
+    # Viewer settings
     Cfg.viewer.follow_robot = False
     Cfg.env.recording_width_px = 180
     Cfg.env.recording_height_px = 120
@@ -107,35 +249,78 @@ def configure_env():
     return Cfg
 
 def train_z1_position_control(headless=True, **deps):
+
     sim_device = 'cuda:0'
     Cfg = configure_env()
 
+    # Create sim_params and select physics engine
+    from isaacgym import gymapi
+    sim_params = gymapi.SimParams()
+    sim_params.use_gpu_pipeline = True
+    sim_params.physx.use_gpu = True
+    sim_params.dt = 0.005  # 200 Hz simulation
+    sim_params.substeps = 1
+    sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.81)
+    
+    # PhysX parameters
+    sim_params.physx.num_threads = 10
+    sim_params.physx.solver_type = 1
+    sim_params.physx.num_position_iterations = 4
+    sim_params.physx.num_velocity_iterations = 0
+    sim_params.physx.contact_offset = 0.01
+    sim_params.physx.rest_offset = 0.0
+    sim_params.physx.bounce_threshold_velocity = 0.5
+    sim_params.physx.max_depenetration_velocity = 1.0
+    sim_params.physx.max_gpu_contact_pairs = 2 ** 20  # Reduced for memory
+    sim_params.physx.default_buffer_size_multiplier = 2  # Reduced for memory
+    sim_params.physx.contact_collection = gymapi.CC_NEVER
+    
+    physics_engine = gymapi.SIM_PHYSX
+
+    # PPO and Runner settings
     PPO_Args.entropy_coef = 0.005
+    PPO_Args.learning_rate = 1e-4
+    PPO_Args.num_learning_epochs = 5
+    PPO_Args.gamma = 0.99
+    PPO_Args.lam = 0.95
+    
     RunnerArgs.num_steps_per_env = 48
     RunnerArgs.save_video_interval = 500
+    
     RunCfg.experiment_job_type = "release"
     RunCfg.experiment_group = "z1_position_control"
 
-    env = Z1Robot(cfg=Cfg, sim_params=None, physics_engine=None, sim_device=sim_device, headless=headless)
-    # If you use wrappers, add them here
-    # env = HistoryWrapper(env, reward_scaling=1.0)
+    # Create the Z1 environment
+    env = Z1Robot(
+        cfg=Cfg, 
+        sim_params=sim_params, 
+        physics_engine=physics_engine, 
+        sim_device=sim_device, 
+        headless=headless
+    )
+    
+    # Add history wrapper for temporal information (required by Runner)
+    from b1_gym.envs.wrappers.history_wrapper import HistoryWrapper
+    env = HistoryWrapper(env, reward_scaling=1.0)
 
-    # log the experiment parameters
+    # Initialize wandb logging
     import wandb
     wandb.init(
-      project="z1-position-control",
-      group=RunCfg.experiment_group,
-      job_type=RunCfg.experiment_job_type,
-      config={
-        "AC_Args": vars(AC_Args),
-        "PPO_Args": vars(PPO_Args),
-        "RunnerArgs": vars(RunnerArgs),
-        "Cfg": vars(Cfg),
-      },
+        project="z1-position-control",
+        group=RunCfg.experiment_group,
+        job_type=RunCfg.experiment_job_type,
+        config={
+            "AC_Args": vars(AC_Args),
+            "PPO_Args": vars(PPO_Args),
+            "RunnerArgs": vars(RunnerArgs),
+            "Cfg": vars(Cfg),
+        },
     )
 
+    # Create runner and start training
     runner = Runner(env, device=sim_device)
     runner.learn(num_learning_iterations=10000, init_at_random_ep_len=True, eval_freq=100)
+
 
 if __name__ == '__main__':
     from pathlib import Path

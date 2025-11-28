@@ -2543,7 +2543,11 @@ class LeggedRobot(BaseTask):
         """
         # reward containers
         from b1_gym.rewards.b1_loco_z1_gaitfree_rewards import B1LocoZ1GaitfreeRewards
-        reward_containers = {"B1LocoZ1GaitfreeRewards": B1LocoZ1GaitfreeRewards,}
+        from b1_gym.rewards.z1_arm_base_rewards import Z1ArmBaseFrameRewards
+        reward_containers = {
+            "B1LocoZ1GaitfreeRewards": B1LocoZ1GaitfreeRewards,
+            "Z1ArmBaseFrameRewards": Z1ArmBaseFrameRewards,
+        }
         
 
         self.reward_container = reward_containers[self.cfg.rewards.reward_container_name](self)
@@ -2651,8 +2655,18 @@ class LeggedRobot(BaseTask):
 
         # save body names from the asset
         body_names = self.gym.get_asset_rigid_body_names(self.robot_asset)
-        self.gripper_stator_index = [index for index, body_name in enumerate(body_names) if body_name == "link06"][0] # For random pushes
-        self.robot_base_index = [index for index, body_name in enumerate(body_names) if body_name == "base"][0] # For random pushes
+        
+        # Find gripper stator index (try multiple names for compatibility)
+        gripper_indices = [i for i, name in enumerate(body_names) if name == "gripperStator"]
+        if not gripper_indices:
+            gripper_indices = [i for i, name in enumerate(body_names) if name == "link06"]
+        self.gripper_stator_index = gripper_indices[0] if gripper_indices else 0
+        
+        # Find robot base index (try multiple names for compatibility)
+        base_indices = [i for i, name in enumerate(body_names) if name == "base"]
+        if not base_indices:
+            base_indices = [i for i, name in enumerate(body_names) if name == "link00"]
+        self.robot_base_index = base_indices[0] if base_indices else 0
                   
         self.dof_names = self.gym.get_asset_dof_names(self.robot_asset)
         self.num_bodies = len(body_names)
