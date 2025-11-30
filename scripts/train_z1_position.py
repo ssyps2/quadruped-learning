@@ -26,29 +26,42 @@ def configure_env():
     Cfg.commands.d_gains_legs = []
 
     # Z1-specific environment settings
-    Cfg.env.num_envs = 16  # Reduced for GPU memory
+    Cfg.env.num_envs = 1024*4
     Cfg.env.num_actions = 7  # 6 arm joints + 1 gripper
     # Observation size: OrientationSensor(3) + JointPositionSensor(7) + JointVelocitySensor(7) + ActionSensor(7) + ClockSensor(4) = 28
     Cfg.env.num_scalar_observations = 28
     Cfg.env.num_observations = 28
-    Cfg.env.episode_length_s = 20
-    Cfg.sim.physx.max_gpu_contact_pairs = 2 ** 21  # Reduced for memory
+    Cfg.env.episode_length_s = 30
+    Cfg.sim.physx.max_gpu_contact_pairs = 2 ** 18  # Reduced for memory
     Cfg.robot.name = "z1"
 
-    # Commands configuration for Z1 (simplified - no locomotion commands)
-    Cfg.commands.num_commands = 3  # EE target position (x, y, z) or (radius, pitch, yaw)
+    # Commands configuration for Z1 (full pose control)
+    # Command indices: [0]=radius, [1]=pos_pitch, [2]=pos_yaw, [3]=timing, [4]=roll, [5]=ori_pitch, [6]=ori_yaw
+    Cfg.commands.num_commands = 7
     Cfg.commands.resampling_time = 10.0
     Cfg.commands.command_curriculum = False
     Cfg.commands.distributional_commands = False
     Cfg.commands.control_only_z1 = False  # We're training pure Z1, not B1+Z1
     
-    # EE spherical command ranges (relative to arm base)
+    # EE spherical position command ranges (relative to arm base)
     Cfg.commands.ee_sphe_radius = [0.3, 0.7]
     Cfg.commands.ee_sphe_pitch = [-np.pi/3, np.pi/3]
     Cfg.commands.ee_sphe_yaw = [-np.pi/2, np.pi/2]
     Cfg.commands.limit_ee_sphe_radius = [0.3, 0.7]
     Cfg.commands.limit_ee_sphe_pitch = [-np.pi/3, np.pi/3]
     Cfg.commands.limit_ee_sphe_yaw = [-np.pi/2, np.pi/2]
+    
+    # EE orientation command ranges (roll, pitch, yaw in radians)
+    Cfg.commands.ee_ori_roll = [-np.pi/4, np.pi/4]
+    Cfg.commands.ee_ori_pitch = [-np.pi/3, np.pi/3]
+    Cfg.commands.ee_ori_yaw = [-np.pi/2, np.pi/2]
+    Cfg.commands.limit_ee_ori_roll = [-np.pi/4, np.pi/4]
+    Cfg.commands.limit_ee_ori_pitch = [-np.pi/3, np.pi/3]
+    Cfg.commands.limit_ee_ori_yaw = [-np.pi/2, np.pi/2]
+    
+    # Timing command (not actively used but part of command vector)
+    Cfg.commands.ee_timing = [0.0, 0.0]
+    Cfg.commands.limit_ee_timing = [0.0, 0.0]
 
     # Sensors for Z1 arm
     Cfg.sensors.sensor_names = [
@@ -83,7 +96,7 @@ def configure_env():
     AC_Args.adaptation_weights = [1, 10]
     AC_Args.init_noise_std = 1.0
 
-    Cfg.env.num_observation_history = 10
+    Cfg.env.num_observation_history = 5  # Reduced from 10 for memory
     Cfg.env.history_frame_skip = 1
 
     # Reward container for Z1
@@ -106,9 +119,9 @@ def configure_env():
     ######################
     ######## ARM #########
     ######################
-    # Position tracking rewards
+    # Position and orientation tracking rewards
     Cfg.reward_scales.manip_pos_tracking = 3.0
-    Cfg.reward_scales.manip_ori_tracking = 2.5
+    Cfg.reward_scales.manip_ori_tracking = 0.0 # disabled
     
     # Torque and dynamics penalties
     Cfg.reward_scales.torque_limits_arm = -0.005
@@ -123,7 +136,7 @@ def configure_env():
     
     # Joint limit penalties
     Cfg.reward_scales.dof_pos_limits_arm = -10.0
-    Cfg.reward_scales.dof_pos = -0.5
+    Cfg.reward_scales.dof_pos = 0.0  # disabled
     
     # Survival reward
     Cfg.reward_scales.survival = 2.0
@@ -182,20 +195,8 @@ def configure_env():
     Cfg.domain_rand.randomize_tile_roughness = False
     Cfg.domain_rand.tile_roughness_range = [0.0, 0.1]
 
-    # Arm PD gains (Unitree Z1 style)
-    default_p_gains = [20.0, 30.0, 30.0, 20.0, 15.0, 10.0, 20.0]
-    default_d_gains = [2000.0] * 7
-
-    unitree_p_gains = [kp * 25.6 for kp in default_p_gains]
-    unitree_d_gains = [kd * 0.0128 for kd in default_d_gains]
-
-    unitree_p_gains_div6 = [kp / 6 for kp in unitree_p_gains]
-    unitree_d_gains_div6 = [kd / 6 for kd in unitree_d_gains]
-    unitree_p_gains_div6[5] = unitree_p_gains_div6[5] * 6 / 4
-    unitree_d_gains_div6[5] = unitree_d_gains_div6[5] * 6 / 4
-
     # Position control gains
-    Cfg.commands.p_gains_arm = [64., 128., 64., 64., 64., 64., 64.]
+    Cfg.commands.p_gains_arm = [60.0, 90.0, 60.0, 60.0, 45.0, 30.0, 60.0]
     Cfg.commands.d_gains_arm = [1.5, 3.0, 1.5, 1.5, 1.5, 1.5, 1.5]
     
     # Control settings
@@ -207,13 +208,13 @@ def configure_env():
     # Normalization
     Cfg.normalization.clip_actions = 10.0
 
-    # Terrain settings (simple flat terrain for arm training)
-    Cfg.terrain.mesh_type = 'trimesh'
+    # Terrain settings (simple plane for arm training - low memory)
+    Cfg.terrain.mesh_type = 'plane'  # Use plane instead of trimesh to save memory
     Cfg.terrain.terrain_noise_magnitude = 0.0
-    Cfg.terrain.teleport_robots = True
-    Cfg.terrain.border_size = 50
-    Cfg.terrain.num_cols = 10
-    Cfg.terrain.num_rows = 10
+    Cfg.terrain.teleport_robots = False
+    Cfg.terrain.border_size = 5
+    Cfg.terrain.num_cols = 1
+    Cfg.terrain.num_rows = 1
     Cfg.terrain.terrain_width = 5.0
     Cfg.terrain.terrain_length = 5.0
     Cfg.terrain.x_init_range = 0.5
@@ -229,8 +230,8 @@ def configure_env():
     Cfg.asset.terminate_after_contacts_on = []
     Cfg.asset.self_collisions = 0  # enable self-collision
 
-    # Initial state
-    Cfg.init_state.pos = [0.0, 0.0, 0.70]
+    # Initial state: place Z1 base at world origin
+    Cfg.init_state.pos = [0.0, 0.0, 0.0]
     Cfg.init_state.default_joint_angles = {
         'joint1': 0.0,
         'joint2': 1.5,
@@ -271,16 +272,16 @@ def train_z1_position_control(headless=True, **deps):
     sim_params.physx.rest_offset = 0.0
     sim_params.physx.bounce_threshold_velocity = 0.5
     sim_params.physx.max_depenetration_velocity = 1.0
-    sim_params.physx.max_gpu_contact_pairs = 2 ** 20  # Reduced for memory
-    sim_params.physx.default_buffer_size_multiplier = 2  # Reduced for memory
+    sim_params.physx.max_gpu_contact_pairs = 2 ** 16  # Minimal for arm-only
+    sim_params.physx.default_buffer_size_multiplier = 1  # Minimal buffer
     sim_params.physx.contact_collection = gymapi.CC_NEVER
     
     physics_engine = gymapi.SIM_PHYSX
 
     # PPO and Runner settings
-    PPO_Args.entropy_coef = 0.005
-    PPO_Args.learning_rate = 1e-4
-    PPO_Args.num_learning_epochs = 5
+    PPO_Args.entropy_coef = 0.01  # Slightly higher for more exploration
+    PPO_Args.learning_rate = 3e-4  # Lower LR for more stable learning
+    PPO_Args.num_learning_epochs = 4  # Fewer epochs per update
     PPO_Args.gamma = 0.99
     PPO_Args.lam = 0.95
     

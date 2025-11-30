@@ -3,15 +3,14 @@ import torch
 import numpy as np
 
 
-# Command indices for Z1 arm (simplified command structure)
-# For standalone Z1, we use a simpler command indexing
-INDEX_EE_POS_X_CMD = 0
-INDEX_EE_POS_Y_CMD = 1
-INDEX_EE_POS_Z_CMD = 2
-# If using spherical coordinates (optional)
+# Command indices for Z1 arm (spherical coordinates)
 INDEX_EE_POS_RADIUS_CMD = 0
 INDEX_EE_POS_PITCH_CMD = 1
 INDEX_EE_POS_YAW_CMD = 2
+INDEX_EE_TIMING_CMD = 3
+INDEX_EE_ROLL_CMD = 4
+INDEX_EE_PITCH_CMD = 5
+INDEX_EE_YAW_CMD = 6
 
 
 class Z1ArmBaseFrameRewards:
@@ -34,25 +33,27 @@ class Z1ArmBaseFrameRewards:
     def _reward_manip_pos_tracking(self):
         """
         Reward for end-effector position tracking in arm base frame.
-        For standalone Z1, the arm base frame coincides with the world frame.
+        Tracks the commanded target position in spherical coordinates (radius, pitch, yaw).
         """
-        # Get target EE position from default joint angles or a simple command structure
-        # For Z1, we track the gripper position relative to the base
-        
-        # Get current ee position in world frame (which is arm base frame for Z1)
+        # Get current EE position in world frame
         ee_idx = self.env.gym.find_actor_rigid_body_handle(
             self.env.envs[0], self.env.robot_actor_handles[0], "gripperStator"
         )
         ee_pos_world = self.env.rigid_body_state.view(self.env.num_envs, -1, 13)[:, ee_idx, 0:3].view(self.env.num_envs, 3)
         
-        # Target position (can be from commands or a fixed target)
-        # Using the initial EE position as reference if available
-        if hasattr(self.env, 'ee_init_pos_world'):
-            ee_target = self.env.ee_init_pos_world
-        else:
-            # Default target based on default joint configuration
-            ee_target = ee_pos_world.clone()
+        # Get commanded target from spherical coordinates (radius, pitch, yaw)
+        # commands[:, 0] = radius, commands[:, 1] = pitch, commands[:, 2] = yaw
+        radius_cmd = self.env.commands[:, INDEX_EE_POS_RADIUS_CMD].view(-1, 1)
+        pitch_cmd = self.env.commands[:, INDEX_EE_POS_PITCH_CMD].view(-1, 1)
+        yaw_cmd = self.env.commands[:, INDEX_EE_POS_YAW_CMD].view(-1, 1)
         
+        # Convert spherical to Cartesian target position
+        x_target = radius_cmd * torch.cos(pitch_cmd) * torch.cos(yaw_cmd)
+        y_target = radius_cmd * torch.cos(pitch_cmd) * torch.sin(yaw_cmd)
+        z_target = -radius_cmd * torch.sin(pitch_cmd)  # negative because pitch down = positive z in arm convention
+        ee_target = torch.cat([x_target, y_target, z_target], dim=1)
+        
+        # Compute position error and exponential reward
         ee_position_error = torch.sum(torch.square(ee_target - ee_pos_world), dim=1)
         ee_position_coeff = 15.0
         pos_rew = torch.exp(-ee_position_coeff * ee_position_error)
@@ -61,6 +62,7 @@ class Z1ArmBaseFrameRewards:
     def _reward_manip_ori_tracking(self):
         """
         Reward for end-effector orientation tracking in arm base frame.
+        Uses the explicit orientation commands (roll, pitch, yaw) from indices 4, 5, 6.
         """
         # Get current EE orientation
         ee_idx = self.env.gym.find_actor_rigid_body_handle(
@@ -69,10 +71,10 @@ class Z1ArmBaseFrameRewards:
         ee_quat = self.env.rigid_body_state.view(self.env.num_envs, -1, 13)[:, ee_idx, 3:7].view(self.env.num_envs, 4)
         ee_rpy = torch.stack(get_euler_xyz(ee_quat), dim=1)
         
-        # Target orientation (default: pointing forward/down)
-        target_roll = torch.zeros(self.env.num_envs, device=self.env.device)
-        target_pitch = torch.zeros(self.env.num_envs, device=self.env.device)
-        target_yaw = torch.zeros(self.env.num_envs, device=self.env.device)
+        # Target orientation from explicit orientation commands
+        target_roll = self.env.commands[:, INDEX_EE_ROLL_CMD]
+        target_pitch = self.env.commands[:, INDEX_EE_PITCH_CMD]
+        target_yaw = self.env.commands[:, INDEX_EE_YAW_CMD]
         
         roll_error = torch.minimum(
             torch.abs(ee_rpy[:, 0] - target_roll),

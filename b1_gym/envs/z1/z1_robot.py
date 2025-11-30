@@ -9,6 +9,15 @@ from isaacgym import gymapi, gymtorch
 from isaacgym.torch_utils import *
 import torch
 import numpy as np
+import math
+
+# Command indices for visualization
+INDEX_EE_POS_RADIUS_CMD = 0
+INDEX_EE_POS_PITCH_CMD = 1
+INDEX_EE_POS_YAW_CMD = 2
+INDEX_EE_ORI_ROLL_CMD = 4
+INDEX_EE_ORI_PITCH_CMD = 5
+INDEX_EE_ORI_YAW_CMD = 6
 
 
 class Z1Robot(LeggedRobot):
@@ -87,6 +96,8 @@ class Z1Robot(LeggedRobot):
             self.dof_damping = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
             self.dof_friction = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
             
+            num_arm_dofs = len(self.cfg.commands.p_gains_arm) if hasattr(self.cfg.commands, 'p_gains_arm') else 7
+            
             for i in range(len(props)):
                 self.dof_pos_limits[i, 0] = props["lower"][i].item()
                 self.dof_pos_limits[i, 1] = props["upper"][i].item()
@@ -96,13 +107,16 @@ class Z1Robot(LeggedRobot):
                 self.dof_friction[i] = props["friction"][i].item()
 
                 # Z1: all DOFs are arm DOFs, use arm gains
+                # Clamp index to available gains
+                gain_idx = min(i, num_arm_dofs - 1)
+                
                 if self.cfg.asset.default_dof_drive_mode == 0:  # mixed (effort for arm)
                     props["stiffness"][i] = 0
                     props["damping"][i] = 0
                     props['driveMode'] = gymapi.DOF_MODE_EFFORT
                 elif self.cfg.asset.default_dof_drive_mode == 1:  # position control
-                    props["stiffness"][i] = self.cfg.commands.p_gains_arm[i]
-                    props["damping"][i] = self.cfg.commands.d_gains_arm[i]
+                    props["stiffness"][i] = self.cfg.commands.p_gains_arm[gain_idx]
+                    props["damping"][i] = self.cfg.commands.d_gains_arm[gain_idx]
                     props['driveMode'] = gymapi.DOF_MODE_POS
                 elif self.cfg.asset.default_dof_drive_mode == 3:  # effort
                     props["stiffness"][i] = 0
@@ -448,26 +462,66 @@ class Z1Robot(LeggedRobot):
 
     def _resample_commands(self, env_ids):
         """
-        Simplified command resampling for Z1 arm.
-        Override if Z1 needs specific command handling.
+        Resample spherical EE position and orientation commands for Z1 arm.
+        Command indices: [0]=radius, [1]=pos_pitch, [2]=pos_yaw, [3]=timing, [4]=roll, [5]=ori_pitch, [6]=ori_yaw
         """
         if len(env_ids) == 0:
             return
         
-        # Simple velocity commands for now
+        # Sample spherical coordinates for EE target position
+        # commands[:, 0] = radius, commands[:, 1] = pitch, commands[:, 2] = yaw
         self.commands[env_ids, 0] = torch_rand_float(
-            self.cfg.commands.lin_vel_x[0], self.cfg.commands.lin_vel_x[1], 
+            self.cfg.commands.ee_sphe_radius[0], self.cfg.commands.ee_sphe_radius[1], 
             (len(env_ids), 1), device=self.device
         ).squeeze(1)
         self.commands[env_ids, 1] = torch_rand_float(
-            self.cfg.commands.lin_vel_y[0], self.cfg.commands.lin_vel_y[1], 
+            self.cfg.commands.ee_sphe_pitch[0], self.cfg.commands.ee_sphe_pitch[1], 
             (len(env_ids), 1), device=self.device
         ).squeeze(1)
         if self.cfg.commands.num_commands > 2:
             self.commands[env_ids, 2] = torch_rand_float(
-                self.cfg.commands.ang_vel_yaw[0], self.cfg.commands.ang_vel_yaw[1], 
+                self.cfg.commands.ee_sphe_yaw[0], self.cfg.commands.ee_sphe_yaw[1], 
                 (len(env_ids), 1), device=self.device
             ).squeeze(1)
+        
+        # Timing command (index 3) - set to 0 if not used
+        if self.cfg.commands.num_commands > 3:
+            if hasattr(self.cfg.commands, 'ee_timing'):
+                self.commands[env_ids, 3] = torch_rand_float(
+                    self.cfg.commands.ee_timing[0], self.cfg.commands.ee_timing[1],
+                    (len(env_ids), 1), device=self.device
+                ).squeeze(1)
+            else:
+                self.commands[env_ids, 3] = 0.0
+        
+        # Sample orientation commands (roll, pitch, yaw)
+        # commands[:, 4] = roll, commands[:, 5] = ori_pitch, commands[:, 6] = ori_yaw
+        if self.cfg.commands.num_commands > 4:
+            if hasattr(self.cfg.commands, 'ee_ori_roll'):
+                self.commands[env_ids, 4] = torch_rand_float(
+                    self.cfg.commands.ee_ori_roll[0], self.cfg.commands.ee_ori_roll[1],
+                    (len(env_ids), 1), device=self.device
+                ).squeeze(1)
+            else:
+                self.commands[env_ids, 4] = 0.0
+        
+        if self.cfg.commands.num_commands > 5:
+            if hasattr(self.cfg.commands, 'ee_ori_pitch'):
+                self.commands[env_ids, 5] = torch_rand_float(
+                    self.cfg.commands.ee_ori_pitch[0], self.cfg.commands.ee_ori_pitch[1],
+                    (len(env_ids), 1), device=self.device
+                ).squeeze(1)
+            else:
+                self.commands[env_ids, 5] = 0.0
+        
+        if self.cfg.commands.num_commands > 6:
+            if hasattr(self.cfg.commands, 'ee_ori_yaw'):
+                self.commands[env_ids, 6] = torch_rand_float(
+                    self.cfg.commands.ee_ori_yaw[0], self.cfg.commands.ee_ori_yaw[1],
+                    (len(env_ids), 1), device=self.device
+                ).squeeze(1)
+            else:
+                self.commands[env_ids, 6] = 0.0
 
     def _post_physics_step_callback(self):
         """
@@ -608,3 +662,70 @@ class Z1Robot(LeggedRobot):
         power_battery = 24.0  # Lower battery for arm-only
         
         return power_joule + power_mechanical + power_battery
+
+    def _draw_target_pose(self):
+        """
+        Draw target pose marker based on commanded spherical coordinates.
+        Visualizes the commanded EE position in the simulation.
+        """
+        if not hasattr(self, 'gym') or self.viewer is None:
+            return
+        
+        # Clear previous debug lines
+        self.gym.clear_lines(self.viewer)
+        
+        # Get arm base position from rigid body state
+        arm_base_pos = self.root_states[:, :3].clone()
+        
+        # Offset for arm base in robot frame (approximate)
+        arm_base_offset = torch.tensor([0.0, 0.0, 0.0], device=self.device)
+        
+        for env_idx in range(min(self.num_envs, 4)):  # Only draw for first 4 envs
+            # Get spherical commands for this env
+            radius = self.commands[env_idx, INDEX_EE_POS_RADIUS_CMD].item()
+            pitch = self.commands[env_idx, INDEX_EE_POS_PITCH_CMD].item()
+            yaw = self.commands[env_idx, INDEX_EE_POS_YAW_CMD].item()
+            
+            # Convert spherical to cartesian (relative to arm base)
+            x_rel = radius * math.cos(pitch) * math.cos(yaw)
+            y_rel = radius * math.cos(pitch) * math.sin(yaw)
+            z_rel = -radius * math.sin(pitch)  # Negative because pitch down is positive z
+            
+            # Get world position of arm base for this env
+            base_x = arm_base_pos[env_idx, 0].item()
+            base_y = arm_base_pos[env_idx, 1].item()
+            base_z = arm_base_pos[env_idx, 2].item()
+            
+            # Compute target world position
+            target_x = base_x + x_rel
+            target_y = base_y + y_rel
+            target_z = base_z + z_rel + 0.1  # Small offset for arm mount height
+            
+            # Draw cross marker at target position
+            size = 0.05  # Marker size
+            color = gymapi.Vec3(1.0, 0.0, 0.0)  # Red
+            
+            # X axis line
+            p1 = gymapi.Vec3(target_x - size, target_y, target_z)
+            p2 = gymapi.Vec3(target_x + size, target_y, target_z)
+            self.gym.add_lines(self.viewer, self.envs[env_idx], 1, [p1.x, p1.y, p1.z, p2.x, p2.y, p2.z], [color.x, color.y, color.z])
+            
+            # Y axis line
+            p1 = gymapi.Vec3(target_x, target_y - size, target_z)
+            p2 = gymapi.Vec3(target_x, target_y + size, target_z)
+            self.gym.add_lines(self.viewer, self.envs[env_idx], 1, [p1.x, p1.y, p1.z, p2.x, p2.y, p2.z], [color.x, color.y, color.z])
+            
+            # Z axis line
+            p1 = gymapi.Vec3(target_x, target_y, target_z - size)
+            p2 = gymapi.Vec3(target_x, target_y, target_z + size)
+            self.gym.add_lines(self.viewer, self.envs[env_idx], 1, [p1.x, p1.y, p1.z, p2.x, p2.y, p2.z], [color.x, color.y, color.z])
+
+    def render_gui(self, sync_frame_time=True):
+        """
+        Override render_gui to draw target pose visualization.
+        """
+        # Draw target pose before rendering
+        self._draw_target_pose()
+        
+        # Call parent render_gui
+        super().render_gui(sync_frame_time)
