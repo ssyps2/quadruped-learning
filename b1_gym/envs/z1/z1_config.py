@@ -77,8 +77,8 @@ def config_z1(Cnfg: Union[Cfg, Meta]):
     _.curriculum = False
 
     _ = Cnfg.env
-    # Observation size: OrientationSensor(3) + JointPositionSensor(7) + JointVelocitySensor(7) + ActionSensor(7) + ClockSensor(4) = 28
-    _.num_observations = 28
+    # Observation size: OrientationSensor(3) + JointPositionSensor(7) + JointVelocitySensor(7) + ActionSensor(7) + ClockSensor(4) + Z1CommandSensor(3) = 31
+    _.num_observations = 31
     _.observe_vel = False
     _.num_actions = 7
     _.num_envs = 4000

@@ -28,9 +28,9 @@ def configure_env():
     # Z1-specific environment settings
     Cfg.env.num_envs = 1024*4
     Cfg.env.num_actions = 7  # 6 arm joints + 1 gripper
-    # Observation size: OrientationSensor(3) + JointPositionSensor(7) + JointVelocitySensor(7) + ActionSensor(7) + ClockSensor(4) = 28
-    Cfg.env.num_scalar_observations = 28
-    Cfg.env.num_observations = 28
+    # Observation size: OrientationSensor(3) + JointPositionSensor(7) + JointVelocitySensor(7) + ActionSensor(7) + ClockSensor(4) + Z1CommandSensor(3) = 31
+    Cfg.env.num_scalar_observations = 31
+    Cfg.env.num_observations = 31
     Cfg.env.episode_length_s = 30
     Cfg.sim.physx.max_gpu_contact_pairs = 2 ** 18  # Reduced for memory
     Cfg.robot.name = "z1"
@@ -64,12 +64,14 @@ def configure_env():
     Cfg.commands.limit_ee_timing = [0.0, 0.0]
 
     # Sensors for Z1 arm
+    # Observation: Orientation(3) + JointPos(7) + JointVel(7) + Action(7) + Clock(4) + Z1Command(3) = 31
     Cfg.sensors.sensor_names = [
         "OrientationSensor",    # size 3: projected gravity
         "JointPositionSensor",  # size 7: arm joint positions
         "JointVelocitySensor",  # size 7: arm joint velocities
         "ActionSensor",         # size 7: current actions
         "ClockSensor",          # size 4: phase clock
+        "Z1CommandSensor",      # size 3: target position (radius, pitch, yaw)
     ]
     Cfg.sensors.sensor_args = {
         "OrientationSensor": {},
@@ -77,6 +79,7 @@ def configure_env():
         "JointVelocitySensor": {},
         "ActionSensor": {},
         "ClockSensor": {},
+        "Z1CommandSensor": {"include_orientation": False},  # Only position for now
     }
     
     # Privileged observations for adaptation

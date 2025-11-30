@@ -27,6 +27,7 @@ from .ee_gripper_force_magn_sensor import EeGripperForceMagnSensor
 from .joint_dynamics_sensor import JointDynamicsSensor
 from .ee_gripper_position_sensor import EeGripperPositionSensor
 from .ee_gripper_target_position_sensor import EeGripperTargetPositionSensor
+from .z1_command_sensor import Z1CommandSensor
 
 ALL_SENSORS = { "AttachedCameraSensor": AttachedCameraSensor,
                 "FloatingCameraSensor": FloatingCameraSensor,
@@ -56,4 +57,5 @@ ALL_SENSORS = { "AttachedCameraSensor": AttachedCameraSensor,
                 "JointDynamicsSensor": JointDynamicsSensor,
                 "EeGripperPositionSensor": EeGripperPositionSensor,
                 "EeGripperTargetPositionSensor": EeGripperTargetPositionSensor,
+                "Z1CommandSensor": Z1CommandSensor,
                 }

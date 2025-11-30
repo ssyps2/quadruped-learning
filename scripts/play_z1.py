@@ -25,7 +25,7 @@ from b1_gym.envs.wrappers.history_wrapper import HistoryWrapper
 from b1_gym_learn.ppo_cse.actor_critic import ActorCritic, AC_Args
 
 
-DEFAULT_CHECKPOINT = "scripts/checkpoints/ac_weights_9900.pt"
+DEFAULT_CHECKPOINT = "scripts/checkpoints/ac_weights_100.pt"
 
 
 def cartesian_to_spherical(x, y, z):
@@ -116,11 +116,11 @@ def load_policy(checkpoint_path: str, device: str = 'cuda:0'):
     AC_Args.adaptation_module_branch_hidden_dims = [256, 128]
     AC_Args.adaptation_dims = [3, 3]  # Total latent dim = 6
     
-    # Z1 training used: num_obs=28, num_privileged_obs=6, num_obs_history=280, num_actions=7
+    # Z1 training used: num_obs=31, num_privileged_obs=6, num_obs_history=155 (5 frames × 31), num_actions=7
     actor_critic = ActorCritic(
-        num_obs=28,
+        num_obs=31,
         num_privileged_obs=6,  # This determines adaptation module output size
-        num_obs_history=280,
+        num_obs_history=155,   # 5 history frames × 31 observations
         num_actions=7
     ).to(device)
     
@@ -149,14 +149,14 @@ def create_env(headless: bool = False, device: str = 'cuda:0'):
     
     Cfg.env.num_envs = 1
     Cfg.env.num_actions = 7
-    Cfg.env.num_observations = 28
-    Cfg.env.num_scalar_observations = 28
+    Cfg.env.num_observations = 31
+    Cfg.env.num_scalar_observations = 31
     Cfg.env.num_privileged_obs = 6
-    Cfg.env.num_observation_history = 10
+    Cfg.env.num_observation_history = 5  # 5 frames × 31 obs = 155 total
     Cfg.commands.num_commands = 7  # radius, pos_pitch, pos_yaw, timing, roll, ori_pitch, ori_yaw
     Cfg.commands.p_gains_legs = []
     Cfg.commands.d_gains_legs = []
-    Cfg.commands.p_gains_arm = [64., 128., 64., 64., 64., 64., 64.]
+    Cfg.commands.p_gains_arm = [60.0, 90.0, 60.0, 60.0, 45.0, 30.0, 60.0]
     Cfg.commands.d_gains_arm = [1.5, 3.0, 1.5, 1.5, 1.5, 1.5, 1.5]
     Cfg.control.decimation = 4
     Cfg.control.control_type = 'P'
@@ -172,6 +172,7 @@ def create_env(headless: bool = False, device: str = 'cuda:0'):
         "JointVelocitySensor",
         "ActionSensor",
         "ClockSensor",
+        "Z1CommandSensor",
     ]
     Cfg.sensors.sensor_args = {
         "OrientationSensor": {},
@@ -179,6 +180,7 @@ def create_env(headless: bool = False, device: str = 'cuda:0'):
         "JointVelocitySensor": {},
         "ActionSensor": {},
         "ClockSensor": {},
+        "Z1CommandSensor": {"include_orientation": False},
     }
     Cfg.sensors.privileged_sensor_names = [
         "JointDynamicsSensor",
